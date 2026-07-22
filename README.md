@@ -4,7 +4,7 @@ Forge Neo adapter for
 [ComfyUI-Krea2Edit](https://github.com/lbouaraba/comfyui-krea2edit).
 
 It implements both paths required by the Krea 2 Identity Edit LoRA, including
-the Phase 2 multi-reference controls:
+multi-reference controls:
 
 - one or two clean reference latent blocks in the training-matched token order
 - image-grounded positive and negative encoding through Forge's Qwen3-VL engine
