@@ -11,7 +11,7 @@ from lib_krea2_edit.forward import krea2_edit_forward, reference_attention_bias
 class ForwardShapeTests(unittest.TestCase):
     @staticmethod
     def make_model():
-        return SingleStreamDiT(
+        model = SingleStreamDiT(
             features=32,
             tdim=8,
             txtdim=16,
@@ -25,6 +25,12 @@ class ForwardShapeTests(unittest.TestCase):
             txtheads=2,
             txtkvheads=1,
         ).eval()
+        # Krea modulation parameters use torch.empty and need deterministic test
+        # initialization outside the real checkpoint loader.
+        with torch.no_grad():
+            for parameter in model.parameters():
+                parameter.normal_(0.0, 0.02)
+        return model
 
     def test_single_reference_returns_only_target_shape(self):
         model = self.make_model()

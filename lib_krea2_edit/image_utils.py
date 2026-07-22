@@ -6,6 +6,11 @@ import torch.nn.functional as F
 from PIL import Image
 
 
+def order_reference_images(subject, scene=None):
+    """Return training-matched reference order from subject-first UI inputs."""
+    return [subject] if scene is None else [scene, subject]
+
+
 def pil_to_bhwc(image: Image.Image) -> torch.Tensor:
     """Convert a PIL reference to Forge/Qwen's float BHWC representation."""
     array = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0

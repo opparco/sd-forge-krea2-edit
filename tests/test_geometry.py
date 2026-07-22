@@ -6,10 +6,20 @@ from lib_krea2_edit.image_utils import (
     fit_reference_mask,
     fit_reference_pixels,
     limit_long_side,
+    order_reference_images,
 )
 
 
 class GeometryTests(unittest.TestCase):
+    def test_subject_only_reference_order(self):
+        subject = object()
+        self.assertEqual(order_reference_images(subject), [subject])
+
+    def test_scene_subject_reference_order(self):
+        subject = object()
+        scene = object()
+        self.assertEqual(order_reference_images(subject, scene), [scene, subject])
+
     def test_near_aspect_ratio_fills_target(self):
         image = torch.zeros(1, 768, 512, 3)
         output = fit_reference_pixels(image, 1024, 704)

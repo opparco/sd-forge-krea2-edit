@@ -9,7 +9,12 @@ from modules import scripts
 from modules.ui_components import InputAccordion
 
 from lib_krea2_edit.conditioning import install_grounded_setup
-from lib_krea2_edit.image_utils import limit_long_side, pil_mask_to_bhw, pil_to_bhwc
+from lib_krea2_edit.image_utils import (
+    limit_long_side,
+    order_reference_images,
+    pil_mask_to_bhw,
+    pil_to_bhwc,
+)
 from lib_krea2_edit.patch import patch_krea2_unet
 
 logger = logging.getLogger(__name__)
@@ -28,15 +33,15 @@ class Krea2IdentityEditForForge(scripts.ScriptBuiltinUI):
         with InputAccordion(
             False, label=self.title(), elem_id=self.elem_id("krea2_edit_enable")
         ) as enabled:
-            reference = gr.Image(
-                label="Reference A (single subject / two-reference scene)",
+            subject_reference = gr.Image(
+                label="Subject reference (required)",
                 type="pil",
                 image_mode="RGB",
                 sources="upload",
                 interactive=True,
             )
-            reference_b = gr.Image(
-                label="Reference B (optional two-reference subject)",
+            scene_reference = gr.Image(
+                label="Scene reference (optional)",
                 type="pil",
                 image_mode="RGB",
                 sources="upload",
@@ -56,7 +61,7 @@ class Krea2IdentityEditForForge(scripts.ScriptBuiltinUI):
                 value=1.0,
                 step=0.05,
                 label="Subject reference boost",
-                info="Applies to reference B, or A in single-reference mode.",
+                info="Applies to the required subject reference.",
             )
             ref_boost_a = gr.Slider(
                 minimum=0.0,
@@ -64,7 +69,7 @@ class Krea2IdentityEditForForge(scripts.ScriptBuiltinUI):
                 value=1.0,
                 step=0.05,
                 label="Scene reference boost",
-                info="Applies to reference A only in two-reference mode.",
+                info="Applies only when an optional scene reference is present.",
             )
             ref_boost_mask = gr.Image(
                 label="Subject boost mask (optional; white = boosted)",
@@ -86,8 +91,8 @@ class Krea2IdentityEditForForge(scripts.ScriptBuiltinUI):
 
         components = (
             enabled,
-            reference,
-            reference_b,
+            subject_reference,
+            scene_reference,
             grounding_px,
             ref_boost,
             ref_boost_a,
@@ -109,8 +114,8 @@ class Krea2IdentityEditForForge(scripts.ScriptBuiltinUI):
         self,
         p,
         enabled,
-        reference,
-        reference_b,
+        subject_reference,
+        scene_reference,
         grounding_px,
         ref_boost,
         ref_boost_a,
@@ -119,8 +124,8 @@ class Krea2IdentityEditForForge(scripts.ScriptBuiltinUI):
     ):
         if not enabled:
             return
-        if reference is None:
-            raise ValueError("Krea 2 Identity Edit requires a reference image.")
+        if subject_reference is None:
+            raise ValueError("Krea 2 Identity Edit requires a subject reference.")
         if not isinstance(p.sd_model, Krea2):
             raise ValueError(
                 "Krea 2 Identity Edit requires a Krea 2 Raw or Turbo model."
@@ -138,9 +143,11 @@ class Krea2IdentityEditForForge(scripts.ScriptBuiltinUI):
                 "Krea 2 Identity Edit supports output resolutions up to 2 megapixels."
             )
 
-        references = [pil_to_bhwc(reference)]
-        if reference_b is not None:
-            references.append(pil_to_bhwc(reference_b))
+        subject_tensor = pil_to_bhwc(subject_reference)
+        scene_tensor = (
+            pil_to_bhwc(scene_reference) if scene_reference is not None else None
+        )
+        references = order_reference_images(subject_tensor, scene_tensor)
         grounded_references = [
             limit_long_side(item, int(grounding_px)) for item in references
         ]
@@ -152,12 +159,12 @@ class Krea2IdentityEditForForge(scripts.ScriptBuiltinUI):
             pil_mask_to_bhw(ref_boost_mask) if ref_boost_mask is not None else None
         )
         p.extra_generation_params["Krea2 Edit"] = (
-            "v1.2 fit dual" if reference_b is not None else "v1.2 fit"
+            "v1.2 fit dual" if scene_reference is not None else "v1.2 fit"
         )
         p.extra_generation_params["Krea2 Edit Grounding"] = int(grounding_px)
         if float(ref_boost) != 1.0:
             p.extra_generation_params["Krea2 Edit Subject Boost"] = float(ref_boost)
-        if reference_b is not None and float(ref_boost_a) != 1.0:
+        if scene_reference is not None and float(ref_boost_a) != 1.0:
             p.extra_generation_params["Krea2 Edit Scene Boost"] = float(ref_boost_a)
         if ref_boost_mask is not None:
             p.extra_generation_params["Krea2 Edit Boost Mask"] = True
@@ -168,8 +175,8 @@ class Krea2IdentityEditForForge(scripts.ScriptBuiltinUI):
         self,
         p,
         enabled,
-        reference,
-        reference_b,
+        subject_reference,
+        scene_reference,
         grounding_px,
         ref_boost,
         ref_boost_a,

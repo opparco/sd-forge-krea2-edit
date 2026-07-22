@@ -23,18 +23,21 @@ at model strength `1.0` using the normal prompt syntax.
 
 ## Usage
 
+For detailed Japanese instructions and a feature-by-feature comparison with the
+ComfyUI node pack, see [`docs/usage.ja.md`](docs/usage.ja.md).
+
 1. Select Krea 2 Raw or Turbo.
 2. Open the **Krea 2 Identity Edit** accordion under txt2img.
-3. Upload reference A. For two-reference edits, use the scene as A and upload the
-   subject as reference B.
+3. Upload the required subject reference. Optionally upload a scene reference for
+   a two-reference edit.
 4. Write an edit instruction in the normal positive prompt.
 5. Activate `krea2_identity_edit_v1_2` at strength 1.0.
 6. Generate at no more than 2 megapixels.
 
-For a single reference, **Subject reference boost** applies to reference A. For
-two references it applies to subject B, while **Scene reference boost** applies
-to scene A. `1.0` disables a boost. An optional grayscale subject mask restricts
-the subject boost to white regions of the last reference.
+**Subject reference boost** always applies to the required subject. **Scene
+reference boost** applies only when the optional scene is present. `1.0` disables
+a boost. An optional grayscale subject mask restricts the subject boost to white
+regions of the subject reference.
 
 Additional character/style LoRAs also affect the joint reference/target stream.
 If their text-encoder weights distort reference grounding, load them with an
@@ -59,6 +62,8 @@ vision tower when SageAttention, FlashAttention, or PyTorch attention is selecte
 - Hires. fix is disabled; generate at the final resolution and upscale afterward
 - reference boost uses an additive attention mask and can require substantially
   more VRAM at high resolutions
+- the bundled SageAttention 1.0.6 ignores additive attention masks; launch Forge
+  with `--disable-sage` when using reference boost
 
 ## Attribution
 
