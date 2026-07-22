@@ -2,6 +2,71 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
+import torch
+
+
+def expand_grounded_multipliers(tokens, multipliers, embeds_info):
+    """Expand prompt weights when one image placeholder becomes many embeddings."""
+    expanded = []
+    embed_iter = iter(embeds_info)
+    for token, multiplier in zip(tokens, multipliers):
+        try:
+            int(token)
+            expanded.append(multiplier)
+        except (TypeError, ValueError):
+            info = next(embed_iter, None)
+            if info is not None:
+                expanded.extend([multiplier] * int(info["size"]))
+    return expanded
+
+
+@contextmanager
+def grounded_token_multiplier_compat(engine, tap_layers=None):
+    """Make Forge prompt-emphasis weights follow expanded Qwen image tokens."""
+    if tap_layers is None:
+        from backend.text_processing.qwen3vl_engine import KREA2_TAP_LAYERS
+
+        tap_layers = KREA2_TAP_LAYERS
+
+    original = engine.process_tokens
+
+    def process_tokens(batch_tokens, batch_multipliers):
+        embeds, mask, count, info = engine.process_embeds(batch_tokens)
+        expanded_multipliers = [
+            expand_grounded_multipliers(tokens, multipliers, info)
+            for tokens, multipliers in zip(batch_tokens, batch_multipliers)
+        ]
+        multiplier_tensor = torch.asarray(expanded_multipliers).to(embeds)
+        if multiplier_tensor.shape != embeds.shape[:-1]:
+            raise RuntimeError(
+                "Krea2 Edit grounded token expansion mismatch: "
+                f"embeddings={tuple(embeds.shape[:-1])}, "
+                f"multipliers={tuple(multiplier_tensor.shape)}"
+            )
+
+        engine.emphasis.tokens = batch_tokens
+        engine.emphasis.multipliers = multiplier_tensor
+        engine.emphasis.z = embeds
+        engine.emphasis.after_transformers()
+        embeds = engine.emphasis.z
+
+        _, output = engine.text_encoder(
+            None,
+            embeds=embeds,
+            attention_mask=mask,
+            num_tokens=count,
+            embeds_info=info,
+            intermediate_output=tap_layers,
+            final_layer_norm_intermediate=False,
+        )
+        return output
+
+    engine.process_tokens = process_tokens
+    try:
+        yield
+    finally:
+        engine.process_tokens = original
+
 
 @contextmanager
 def forge_qwen_vision_attention_compat(qwen_module=None, selected_attention=None):
@@ -39,7 +104,8 @@ class GroundedQwenEngine:
         self._image = image
 
     def __call__(self, texts, images=None):
-        return self._engine(texts, images=[self._image])
+        with grounded_token_multiplier_compat(self._engine):
+            return self._engine(texts, images=[self._image])
 
     def __getattr__(self, name):
         return getattr(self._engine, name)
