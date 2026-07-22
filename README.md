@@ -35,6 +35,9 @@ Recommended starting points:
 At CFG greater than 1, the extension also grounds the negative prompt with the
 same reference image.
 
+The extension includes a scoped compatibility adapter for Forge Neo's Qwen3-VL
+vision tower when SageAttention, FlashAttention, or PyTorch attention is selected.
+
 ## Phase 1 limits
 
 - txt2img only

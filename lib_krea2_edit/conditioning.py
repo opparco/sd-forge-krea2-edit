@@ -1,5 +1,35 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def forge_qwen_vision_attention_compat(qwen_module=None, selected_attention=None):
+    """Adapt Forge's selected attention function to Qwen's selector API.
+
+    Forge exposes ``backend.attention.attention_function`` as the already selected
+    q/k/v implementation. The imported Comfy Qwen vision code expects a callable
+    selector and invokes it first with ``(device, mask=..., small_input=...)``.
+    Keep the patch scoped to grounded encoding and restore the module afterward.
+    """
+    if selected_attention is None:
+        from backend import attention as forge_attention
+
+        selected_attention = forge_attention.attention_function
+    if qwen_module is None:
+        from backend.nn.llm import qwen35 as qwen_module
+
+    original = qwen_module.attention_function
+
+    def select_attention(device, mask=False, small_input=False):
+        return selected_attention
+
+    qwen_module.attention_function = select_attention
+    try:
+        yield
+    finally:
+        qwen_module.attention_function = original
+
 
 class GroundedQwenEngine:
     """Job-local proxy that adds one reference image to every prompt encode."""
@@ -33,7 +63,8 @@ def install_grounded_setup(processing, grounded_image) -> None:
             original_engine, grounded_image
         )
         try:
-            return original_setup_conds()
+            with forge_qwen_vision_attention_compat():
+                return original_setup_conds()
         finally:
             sd_model.text_processing_engine_qwen = original_engine
 
