@@ -103,6 +103,33 @@ class PatchTests(unittest.TestCase):
         self.assertEqual(calls, ["previous"])
         self.assertEqual(tuple(output.shape), tuple(call["input"].shape))
 
+    def test_two_references_and_boost_mask_run_through_wrapper(self):
+        unet = FakeUnet()
+        references = [
+            torch.zeros(1, 64, 64, 3),
+            torch.ones(1, 48, 80, 3),
+        ]
+        patched = patch_krea2_unet(
+            unet,
+            FakeVAE(),
+            references,
+            ref_boost=2.0,
+            ref_boost_a=1.5,
+            ref_boost_mask=torch.ones(1, 48, 80),
+        )
+        wrapper = patched.model_options["model_function_wrapper"]
+        call = {
+            "input": torch.randn(1, 4, 8, 8),
+            "timestep": torch.ones(1),
+            "c": {
+                "c_crossattn": torch.randn(1, 1, 3, 32),
+                "transformer_options": {},
+            },
+        }
+        with torch.inference_mode():
+            output = wrapper(None, call)
+        self.assertEqual(tuple(output.shape), tuple(call["input"].shape))
+
 
 if __name__ == "__main__":
     unittest.main()

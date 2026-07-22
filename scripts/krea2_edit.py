@@ -9,7 +9,7 @@ from modules import scripts
 from modules.ui_components import InputAccordion
 
 from lib_krea2_edit.conditioning import install_grounded_setup
-from lib_krea2_edit.image_utils import limit_long_side, pil_to_bhwc
+from lib_krea2_edit.image_utils import limit_long_side, pil_mask_to_bhw, pil_to_bhwc
 from lib_krea2_edit.patch import patch_krea2_unet
 
 logger = logging.getLogger(__name__)
@@ -29,10 +29,17 @@ class Krea2IdentityEditForForge(scripts.ScriptBuiltinUI):
             False, label=self.title(), elem_id=self.elem_id("krea2_edit_enable")
         ) as enabled:
             reference = gr.Image(
-                label="Reference image",
+                label="Reference A (single subject / two-reference scene)",
                 type="pil",
                 image_mode="RGB",
-                source="upload",
+                sources="upload",
+                interactive=True,
+            )
+            reference_b = gr.Image(
+                label="Reference B (optional two-reference subject)",
+                type="pil",
+                image_mode="RGB",
+                sources="upload",
                 interactive=True,
             )
             grounding_px = gr.Slider(
@@ -43,21 +50,73 @@ class Krea2IdentityEditForForge(scripts.ScriptBuiltinUI):
                 label="Grounding resolution",
                 info="Lower favors edit adherence; higher favors identity detail.",
             )
+            ref_boost = gr.Slider(
+                minimum=0.0,
+                maximum=16.0,
+                value=1.0,
+                step=0.05,
+                label="Subject reference boost",
+                info="Applies to reference B, or A in single-reference mode.",
+            )
+            ref_boost_a = gr.Slider(
+                minimum=0.0,
+                maximum=16.0,
+                value=1.0,
+                step=0.05,
+                label="Scene reference boost",
+                info="Applies to reference A only in two-reference mode.",
+            )
+            ref_boost_mask = gr.Image(
+                label="Subject boost mask (optional; white = boosted)",
+                type="pil",
+                image_mode="L",
+                sources="upload",
+                interactive=True,
+            )
+            system_prompt = gr.Textbox(
+                label="Grounding system prompt override (advanced)",
+                lines=2,
+                value="",
+                info="Empty preserves Forge's default image-grounding template.",
+            )
             gr.Markdown(
                 "Use the normal positive prompt as the edit instruction. "
                 "Load `krea2_identity_edit_v1_2` with Forge's normal LoRA syntax."
             )
 
-        for component in (enabled, reference, grounding_px):
+        components = (
+            enabled,
+            reference,
+            reference_b,
+            grounding_px,
+            ref_boost,
+            ref_boost_a,
+            ref_boost_mask,
+            system_prompt,
+        )
+        for component in components:
             component.do_not_save_to_config = True
 
         self.infotext_fields = [
             (enabled, "Krea2 Edit"),
             (grounding_px, "Krea2 Edit Grounding"),
+            (ref_boost, "Krea2 Edit Subject Boost"),
+            (ref_boost_a, "Krea2 Edit Scene Boost"),
         ]
-        return enabled, reference, grounding_px
+        return components
 
-    def process(self, p, enabled, reference, grounding_px):
+    def process(
+        self,
+        p,
+        enabled,
+        reference,
+        reference_b,
+        grounding_px,
+        ref_boost,
+        ref_boost_a,
+        ref_boost_mask,
+        system_prompt,
+    ):
         if not enabled:
             return
         if reference is None:
@@ -79,15 +138,44 @@ class Krea2IdentityEditForForge(scripts.ScriptBuiltinUI):
                 "Krea 2 Identity Edit supports output resolutions up to 2 megapixels."
             )
 
-        reference_tensor = pil_to_bhwc(reference)
-        grounded_reference = limit_long_side(reference_tensor, int(grounding_px))
-        install_grounded_setup(p, grounded_reference)
-        p._krea2_edit_reference = reference_tensor
-        p.extra_generation_params["Krea2 Edit"] = "v1.2 fit"
+        references = [pil_to_bhwc(reference)]
+        if reference_b is not None:
+            references.append(pil_to_bhwc(reference_b))
+        grounded_references = [
+            limit_long_side(item, int(grounding_px)) for item in references
+        ]
+        install_grounded_setup(p, grounded_references, system_prompt)
+        p._krea2_edit_references = references
+        p._krea2_edit_ref_boost = float(ref_boost)
+        p._krea2_edit_ref_boost_a = float(ref_boost_a)
+        p._krea2_edit_ref_boost_mask = (
+            pil_mask_to_bhw(ref_boost_mask) if ref_boost_mask is not None else None
+        )
+        p.extra_generation_params["Krea2 Edit"] = (
+            "v1.2 fit dual" if reference_b is not None else "v1.2 fit"
+        )
         p.extra_generation_params["Krea2 Edit Grounding"] = int(grounding_px)
+        if float(ref_boost) != 1.0:
+            p.extra_generation_params["Krea2 Edit Subject Boost"] = float(ref_boost)
+        if reference_b is not None and float(ref_boost_a) != 1.0:
+            p.extra_generation_params["Krea2 Edit Scene Boost"] = float(ref_boost_a)
+        if ref_boost_mask is not None:
+            p.extra_generation_params["Krea2 Edit Boost Mask"] = True
+        if system_prompt.strip():
+            p.extra_generation_params["Krea2 Edit System Prompt"] = "custom"
 
     def process_before_every_sampling(
-        self, p, enabled, reference, grounding_px, **kwargs
+        self,
+        p,
+        enabled,
+        reference,
+        reference_b,
+        grounding_px,
+        ref_boost,
+        ref_boost_a,
+        ref_boost_mask,
+        system_prompt,
+        **kwargs,
     ):
         if not enabled:
             return
@@ -101,5 +189,8 @@ class Krea2IdentityEditForForge(scripts.ScriptBuiltinUI):
         p.sd_model.forge_objects.unet = patch_krea2_unet(
             unet,
             p.sd_model.forge_objects.vae,
-            p._krea2_edit_reference,
+            p._krea2_edit_references,
+            ref_boost=p._krea2_edit_ref_boost,
+            ref_boost_a=p._krea2_edit_ref_boost_a,
+            ref_boost_mask=p._krea2_edit_ref_boost_mask,
         )

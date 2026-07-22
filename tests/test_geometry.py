@@ -2,7 +2,11 @@ import unittest
 
 import torch
 
-from lib_krea2_edit.image_utils import fit_reference_pixels, limit_long_side
+from lib_krea2_edit.image_utils import (
+    fit_reference_mask,
+    fit_reference_pixels,
+    limit_long_side,
+)
 
 
 class GeometryTests(unittest.TestCase):
@@ -24,6 +28,13 @@ class GeometryTests(unittest.TestCase):
         self.assertIs(limit_long_side(small, 768), small)
         large = torch.zeros(1, 1200, 600, 3)
         self.assertEqual(tuple(limit_long_side(large, 768).shape), (1, 768, 384, 3))
+
+    def test_boost_mask_uses_reference_fit_geometry(self):
+        image = torch.zeros(1, 1024, 512, 3)
+        mask = torch.ones(1, 1024, 512)
+        fitted_image = fit_reference_pixels(image, 512, 1024)
+        fitted_mask = fit_reference_mask(mask, image, 512, 1024)
+        self.assertEqual(tuple(fitted_mask.shape[1:]), tuple(fitted_image.shape[1:3]))
 
 
 if __name__ == "__main__":

@@ -96,23 +96,71 @@ def forge_qwen_vision_attention_compat(qwen_module=None, selected_attention=None
         qwen_module.attention_function = original
 
 
-class GroundedQwenEngine:
-    """Job-local proxy that adds one reference image to every prompt encode."""
+@contextmanager
+def grounded_empty_prompt_compat(engine):
+    """Keep image tokens when Forge encodes an empty grounded negative prompt."""
+    required = ("tokenize", "tokenizer", "image_template", "vision_block")
+    if not all(hasattr(engine, name) for name in required):
+        yield
+        return
 
-    def __init__(self, engine, image):
+    original = engine.tokenize
+
+    def tokenize(texts, images=None):
+        images = [] if images is None else images
+        if not images:
+            return original(texts, images)
+        template = engine.image_template.replace(
+            engine.vision_block, engine.vision_block * len(images), 1
+        )
+        return engine.tokenizer([template.format(text) for text in texts])["input_ids"]
+
+    engine.tokenize = tokenize
+    try:
+        yield
+    finally:
+        engine.tokenize = original
+
+
+class GroundedQwenEngine:
+    """Job-local proxy that adds ordered reference images to every prompt encode."""
+
+    def __init__(self, engine, images, system_prompt=""):
         self._engine = engine
-        self._image = image
+        self._images = list(images) if isinstance(images, (list, tuple)) else [images]
+        self._system_prompt = system_prompt.strip()
 
     def __call__(self, texts, images=None):
-        with grounded_token_multiplier_compat(self._engine):
-            return self._engine(texts, images=[self._image])
+        original_template = getattr(self._engine, "image_template", None)
+        if self._system_prompt:
+            if original_template is None:
+                raise AttributeError(
+                    "Krea2 Edit system prompt override requires an image_template."
+                )
+            escaped_system_prompt = self._system_prompt.replace("{", "{{").replace(
+                "}", "}}"
+            )
+            self._engine.image_template = (
+                f"<|im_start|>system\n{escaped_system_prompt}<|im_end|>\n"
+                "<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>"
+                "{}<|im_end|>\n<|im_start|>assistant\n"
+            )
+        try:
+            with (
+                grounded_empty_prompt_compat(self._engine),
+                grounded_token_multiplier_compat(self._engine),
+            ):
+                return self._engine(texts, images=self._images)
+        finally:
+            if original_template is not None:
+                self._engine.image_template = original_template
 
     def __getattr__(self, name):
         return getattr(self._engine, name)
 
 
-def install_grounded_setup(processing, grounded_image) -> None:
-    """Wrap ``setup_conds`` so positive and negative prompts see the reference.
+def install_grounded_setup(processing, grounded_images, system_prompt="") -> None:
+    """Wrap ``setup_conds`` so positive and negative prompts see the references.
 
     The Qwen engine swap exists only while Forge builds conditioning. This avoids
     leaving the globally shared diffusion engine monkey-patched between jobs.
@@ -120,13 +168,21 @@ def install_grounded_setup(processing, grounded_image) -> None:
     if getattr(processing, "_krea2_edit_grounding_installed", False):
         return
 
+    images = (
+        list(grounded_images)
+        if isinstance(grounded_images, (list, tuple))
+        else [grounded_images]
+    )
+    if not images or any(image is None for image in images):
+        raise ValueError("Krea2 Edit grounding requires one or more images.")
+
     original_setup_conds = processing.setup_conds
 
     def setup_conds_with_reference():
         sd_model = processing.sd_model
         original_engine = sd_model.text_processing_engine_qwen
         sd_model.text_processing_engine_qwen = GroundedQwenEngine(
-            original_engine, grounded_image
+            original_engine, images, system_prompt
         )
         try:
             with forge_qwen_vision_attention_compat():

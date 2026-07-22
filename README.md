@@ -1,12 +1,15 @@
 # Krea 2 Identity Edit for Forge Neo
 
-Phase 1 Forge Neo adapter for
+Forge Neo adapter for
 [ComfyUI-Krea2Edit](https://github.com/lbouaraba/comfyui-krea2edit).
 
 It implements both paths required by the Krea 2 Identity Edit LoRA:
 
-- clean reference latent tokens in `[text | source(frame=1) | target(frame=0)]`
+- one or two clean reference latent blocks in
+  `[text | scene(frame=1) | subject(frame=2) | target(frame=0)]`
 - image-grounded positive and negative encoding through Forge's Qwen3-VL engine
+- per-reference attention boost, an optional subject boost mask, and an advanced
+  grounding system-prompt override
 
 ## Requirements
 
@@ -22,10 +25,20 @@ at model strength `1.0` using the normal prompt syntax.
 
 1. Select Krea 2 Raw or Turbo.
 2. Open the **Krea 2 Identity Edit** accordion under txt2img.
-3. Upload one reference image.
+3. Upload reference A. For two-reference edits, use the scene as A and upload the
+   subject as reference B.
 4. Write an edit instruction in the normal positive prompt.
 5. Activate `krea2_identity_edit_v1_2` at strength 1.0.
 6. Generate at no more than 2 megapixels.
+
+For a single reference, **Subject reference boost** applies to reference A. For
+two references it applies to subject B, while **Scene reference boost** applies
+to scene A. `1.0` disables a boost. An optional grayscale subject mask restricts
+the subject boost to white regions of the last reference.
+
+Additional character/style LoRAs also affect the joint reference/target stream.
+If their text-encoder weights distort reference grounding, load them with an
+explicit zero TE strength, for example `<lora:name:te=0:unet=0.3>`.
 
 Recommended starting points:
 
@@ -33,19 +46,19 @@ Recommended starting points:
 - Raw: about 20 steps, CFG 3 for removals and other strong edits
 
 At CFG greater than 1, the extension also grounds the negative prompt with the
-same reference image.
+same ordered reference image set.
 
 The extension includes a scoped compatibility adapter for Forge Neo's Qwen3-VL
 vision tower when SageAttention, FlashAttention, or PyTorch attention is selected.
 
-## Phase 1 limits
+## Current limits
 
 - txt2img only
-- one reference image
 - v1.2 `fit` geometry only
 - batch size 1; `n_iter` may be used for multiple outputs
 - Hires. fix is disabled; generate at the final resolution and upscale afterward
-- no regional reference-boost mask or two-reference editing yet
+- reference boost uses an additive attention mask and can require substantially
+  more VRAM at high resolutions
 
 ## Attribution
 

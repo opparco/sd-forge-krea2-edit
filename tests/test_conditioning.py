@@ -9,6 +9,7 @@ from lib_krea2_edit.conditioning import (
     GroundedQwenEngine,
     expand_grounded_multipliers,
     forge_qwen_vision_attention_compat,
+    grounded_empty_prompt_compat,
     grounded_token_multiplier_compat,
     install_grounded_setup,
 )
@@ -23,6 +24,17 @@ class RecordingEngine:
     def __call__(self, texts, images=None):
         self.calls.append((texts, images))
         return texts
+
+
+class TemplateRecordingEngine(RecordingEngine):
+    def __init__(self):
+        super().__init__()
+        self.image_template = "original {}"
+        self.templates = []
+
+    def __call__(self, texts, images=None):
+        self.templates.append(self.image_template)
+        return super().__call__(texts, images)
 
 
 class RecordingEmphasis:
@@ -71,6 +83,28 @@ class FakeProcessing:
 
 
 class ConditioningTests(unittest.TestCase):
+    def test_empty_grounded_prompt_keeps_ordered_image_placeholders(self):
+        captured = []
+
+        def original_tokenize(texts, images=None):
+            return [[0]]
+
+        def tokenizer(texts):
+            captured.extend(texts)
+            return {"input_ids": [[1]]}
+
+        vision = "<|vision_start|><|image_pad|><|vision_end|>"
+        engine = SimpleNamespace(
+            tokenize=original_tokenize,
+            tokenizer=tokenizer,
+            image_template=f"<user>{vision}{{}}</user>",
+            vision_block=vision,
+        )
+        with grounded_empty_prompt_compat(engine):
+            engine.tokenize([""], images=[object(), object()])
+        self.assertEqual(captured[0].count(vision), 2)
+        self.assertEqual(engine.tokenize(["fallback"]), [[0]])
+
     def test_image_placeholder_multiplier_expands_to_vision_token_count(self):
         tokens = [151644, {"type": "image"}, 123, 151645]
         multipliers = [1.0, 0.75, 1.2, 1.0]
@@ -108,6 +142,28 @@ class ConditioningTests(unittest.TestCase):
             proxy(["prompt"])
         self.assertEqual(engine.calls, [(["prompt"], [image])])
         self.assertEqual(proxy.marker, "delegated")
+
+    def test_proxy_injects_two_images_in_order(self):
+        engine = RecordingEngine()
+        images = [object(), object()]
+        proxy = GroundedQwenEngine(engine, images)
+        with patch(
+            "lib_krea2_edit.conditioning.grounded_token_multiplier_compat",
+            return_value=nullcontext(),
+        ):
+            proxy(["prompt"])
+        self.assertEqual(engine.calls, [(["prompt"], images)])
+
+    def test_system_prompt_override_is_scoped(self):
+        engine = TemplateRecordingEngine()
+        proxy = GroundedQwenEngine(engine, [object()], "focus on {facial} identity")
+        with patch(
+            "lib_krea2_edit.conditioning.grounded_token_multiplier_compat",
+            return_value=nullcontext(),
+        ):
+            proxy(["prompt"])
+        self.assertIn("focus on {{facial}} identity", engine.templates[0])
+        self.assertEqual(engine.image_template, "original {}")
 
     def test_setup_swap_is_scoped_and_idempotent(self):
         engine = RecordingEngine()
