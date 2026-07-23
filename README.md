@@ -32,8 +32,7 @@ at model strength `1.0` using the normal prompt syntax.
 
 ## Usage
 
-For detailed Japanese instructions and a feature-by-feature comparison with the
-ComfyUI node pack, see the
+For detailed Japanese instructions, see the
 [Japanese usage guide](https://github.com/opparco/sd-forge-krea2-edit/wiki/Usage).
 
 1. Select Krea 2 Raw or Turbo.
@@ -111,9 +110,6 @@ vision tower when SageAttention, FlashAttention, or PyTorch attention is selecte
 | Scene reference boost | `ref_boost_a` |
 | Uploaded grayscale subject mask | `ref_boost_mask` (`MASK`) |
 | v1.2 `fit` | `fit_mode: fit` |
-
-See the [Japanese usage guide](https://github.com/opparco/sd-forge-krea2-edit/wiki/Usage) for detailed workflows,
-differences, and troubleshooting.
 
 ## Current limits
 
