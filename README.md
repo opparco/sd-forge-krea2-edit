@@ -84,7 +84,7 @@ Confirm that the startup log reports `Using PyTorch Cross Attention`.
 
 Additional character/style LoRAs also affect the joint reference/target stream.
 If their text-encoder weights distort reference grounding, load them with an
-explicit zero TE strength, for example `<lora:name:te=0:unet=0.3>`.
+explicit zero TE strength, for example `<lora:name:te=0:unet=0.8>`.
 
 ### Starting settings
 
