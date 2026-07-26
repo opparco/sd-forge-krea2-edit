@@ -172,11 +172,12 @@ class ConditioningTests(unittest.TestCase):
     def test_setup_swap_is_scoped_and_idempotent(self):
         engine = RecordingEngine()
         image = object()
+        another_image = object()
         processing = FakeProcessing(engine)
         original_cache_params = processing.cached_params("same prompt")
         install_grounded_setup(processing, image)
         grounded_cache_params = processing.cached_params("same prompt")
-        install_grounded_setup(processing, object())
+        install_grounded_setup(processing, another_image)
         with (
             patch(
                 "lib_krea2_edit.conditioning.forge_qwen_vision_attention_compat",
@@ -194,10 +195,12 @@ class ConditioningTests(unittest.TestCase):
         self.assertNotEqual(original_cache_params, grounded_cache_params)
 
     def test_separate_reference_jobs_do_not_share_conditioning_cache(self):
+        image = object()
+        another_image = object()
         first = FakeProcessing(RecordingEngine())
         second = FakeProcessing(RecordingEngine())
-        install_grounded_setup(first, object())
-        install_grounded_setup(second, object())
+        install_grounded_setup(first, image)
+        install_grounded_setup(second, another_image)
 
         self.assertNotEqual(
             first.cached_params("same prompt"),
