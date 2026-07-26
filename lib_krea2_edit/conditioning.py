@@ -164,6 +164,8 @@ def install_grounded_setup(processing, grounded_images, system_prompt="") -> Non
 
     The Qwen engine swap exists only while Forge builds conditioning. This avoids
     leaving the globally shared diffusion engine monkey-patched between jobs.
+    A job-local cache marker keeps Forge from reusing conditioning that was
+    encoded with a different job's reference images.
     """
     if getattr(processing, "_krea2_edit_grounding_installed", False):
         return
@@ -175,6 +177,15 @@ def install_grounded_setup(processing, grounded_images, system_prompt="") -> Non
     )
     if not images or any(image is None for image in images):
         raise ValueError("Krea2 Edit grounding requires one or more images.")
+
+    original_cached_params = getattr(processing, "cached_params", None)
+    if original_cached_params is not None:
+        cache_marker = object()
+
+        def cached_params_with_references(*args, **kwargs):
+            return (*original_cached_params(*args, **kwargs), cache_marker)
+
+        processing.cached_params = cached_params_with_references
 
     original_setup_conds = processing.setup_conds
 
