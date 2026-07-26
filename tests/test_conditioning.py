@@ -76,6 +76,10 @@ class FakeProcessing:
         self.sd_model = FakeModel(engine)
         self.encoded = None
 
+    @staticmethod
+    def cached_params(prompt):
+        return (prompt,)
+
     def setup_conds(self):
         self.encoded = self.sd_model.text_processing_engine_qwen(
             ["positive", "negative"]
@@ -169,7 +173,9 @@ class ConditioningTests(unittest.TestCase):
         engine = RecordingEngine()
         image = object()
         processing = FakeProcessing(engine)
+        original_cache_params = processing.cached_params("same prompt")
         install_grounded_setup(processing, image)
+        grounded_cache_params = processing.cached_params("same prompt")
         install_grounded_setup(processing, object())
         with (
             patch(
@@ -184,6 +190,19 @@ class ConditioningTests(unittest.TestCase):
             processing.setup_conds()
         self.assertIs(processing.sd_model.text_processing_engine_qwen, engine)
         self.assertEqual(engine.calls, [(["positive", "negative"], [image])])
+        self.assertEqual(grounded_cache_params, processing.cached_params("same prompt"))
+        self.assertNotEqual(original_cache_params, grounded_cache_params)
+
+    def test_separate_reference_jobs_do_not_share_conditioning_cache(self):
+        first = FakeProcessing(RecordingEngine())
+        second = FakeProcessing(RecordingEngine())
+        install_grounded_setup(first, object())
+        install_grounded_setup(second, object())
+
+        self.assertNotEqual(
+            first.cached_params("same prompt"),
+            second.cached_params("same prompt"),
+        )
 
     def test_qwen_vision_attention_adapter_returns_forge_backend_and_restores(self):
         original = object()
