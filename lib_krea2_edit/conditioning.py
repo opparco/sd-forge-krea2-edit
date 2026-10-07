@@ -4,6 +4,8 @@ from contextlib import contextmanager
 
 import torch
 
+DEFAULT_KREA2_TAP_LAYERS = (2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35)
+
 
 def expand_grounded_multipliers(tokens, multipliers, embeds_info):
     """Expand prompt weights when one image placeholder becomes many embeddings."""
@@ -22,13 +24,16 @@ def expand_grounded_multipliers(tokens, multipliers, embeds_info):
 
 @contextmanager
 def grounded_token_multiplier_compat(engine, tap_layers=None):
-    """Make Forge prompt-emphasis weights follow expanded Qwen image tokens."""
+    """Keep legacy prompt-emphasis weights aligned with expanded image tokens."""
+    original = getattr(engine, "process_tokens", None)
+    if original is None:
+        yield
+        return
+
     if tap_layers is None:
-        from backend.text_processing.qwen3vl_engine import KREA2_TAP_LAYERS
-
-        tap_layers = KREA2_TAP_LAYERS
-
-    original = engine.process_tokens
+        tap_layers = getattr(
+            engine.text_encoder, "layer", DEFAULT_KREA2_TAP_LAYERS
+        )
 
     def process_tokens(batch_tokens, batch_multipliers):
         embeds, mask, count, info = engine.process_embeds(batch_tokens)
@@ -86,7 +91,23 @@ def forge_qwen_vision_attention_compat(qwen_module=None, selected_attention=None
 
     original = qwen_module.attention_function
 
-    def select_attention(device, mask=False, small_input=False):
+#   def select_attention(device, mask=False, small_input=False):
+    def select_attention(*args, **kwargs):
+        """Support both selector-style and direct attention calls.
+        Qwen sometimes calls attention_function as a selector with
+        (device, mask=..., small_input=...) expecting a callable to be
+        returned. Other times it calls the function directly with
+        positional tensors (q, k, v, num_heads, ...) plus kwargs like
+        skip_reshape. Detect the call form and either return the selected
+        callable or forward the call to it.
+        """
+        # If the first positional argument looks like a tensor, treat this
+        # as a direct attention invocation and forward to the selected
+        # attention implementation.
+        if args and torch.is_tensor(args[0]):
+            return selected_attention(*args, **kwargs)
+        # Otherwise act as the selector and return the selected attention
+        # callable. Accept and ignore extra selector kwargs.
         return selected_attention
 
     qwen_module.attention_function = select_attention

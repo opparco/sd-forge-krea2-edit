@@ -135,6 +135,20 @@ class ConditioningTests(unittest.TestCase):
         self.assertEqual(engine.encoder_call["intermediate_output"], [2, 5])
         self.assertIs(engine.process_tokens, original)
 
+    def test_grounded_process_tokens_uses_local_tap_layer_fallback(self):
+        engine = FakeGroundedEngine()
+        with grounded_token_multiplier_compat(engine):
+            engine.process_tokens([[1, {"type": "image"}, 2, 3]], [[1.0] * 4])
+        self.assertEqual(
+            tuple(engine.encoder_call["intermediate_output"]),
+            (2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35),
+        )
+
+    def test_grounded_token_multiplier_compat_skips_engine_without_legacy_api(self):
+        engine = SimpleNamespace()
+        with grounded_token_multiplier_compat(engine):
+            self.assertFalse(hasattr(engine, "process_tokens"))
+
     def test_proxy_injects_image_and_delegates_attributes(self):
         engine = RecordingEngine()
         image = object()
