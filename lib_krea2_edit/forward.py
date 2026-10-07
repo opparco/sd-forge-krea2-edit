@@ -142,7 +142,16 @@ def krea2_edit_forward(
     # Forge currently carries an extra singleton dimension on Krea conditioning.
     if context.ndim == 4 and context.shape[1] == 1:
         context = context.squeeze(1)
-    context = model._unpack_context(context)
+    # Some model variants (e.g., SingleStreamDiT) do not provide
+    # _unpack_context. Fall back to using the supplied context as-is in
+    # that case so the forward path remains compatible.
+    if hasattr(model, "_unpack_context"):
+        context = model._unpack_context(context)
+    else:
+        # Assume context is already in unpacked form
+        pass
+
+    #context = model._unpack_context(context)
 
     target_tokens = model.first(
         rearrange(x, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=patch, pw=patch)
